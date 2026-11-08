@@ -248,6 +248,84 @@ replaces that slot's entry before removing its obsolete boot assets. The other
 slot's assets are never removed. A/B rollback means booting the other root, not
 using an older kernel with an already-upgraded root.
 
+### Example update run and subsequent Slot B boot
+
+Captured update output from Slot A (the first-use sudo lecture is omitted):
+
+```text
+[chris@arch-xfce ~]$ sudo arch-xfce-slot-update
+[sudo] password for chris:
+Cloning slot A to B; shared /home is not copied.
+Updating inactive slot B.
+:: Synchronising package databases...
+ core is up to date
+ extra                   8.6 MiB  4.69 MiB/s 00:02 [######################] 100%
+:: Starting full system upgrade...
+ there is nothing to do
+==> Building image from preset: /etc/mkinitcpio.d/linux.preset: 'default'
+==> Using default configuration file: '/etc/mkinitcpio.conf'
+  -> -k /boot/vmlinuz-linux -g /boot/initramfs-linux.img
+==> Using drop-in configuration file: 'arch-xfce.conf'
+==> Starting build: '7.2.14-arch1-1'
+  -> Running build hook: [base]
+  -> Running build hook: [systemd]
+  -> Running build hook: [microcode]
+  -> Running build hook: [modconf]
+  -> Running build hook: [keyboard]
+==> WARNING: Possibly missing firmware for module: 'xhci_pci_renesas'
+  -> Running build hook: [sd-vconsole]
+  -> Running build hook: [block]
+==> WARNING: Possibly missing firmware for module: 'qed'
+==> WARNING: Possibly missing firmware for module: 'bfa'
+==> WARNING: Possibly missing firmware for module: 'qla1280'
+==> WARNING: Possibly missing firmware for module: 'wd719x'
+==> WARNING: Possibly missing firmware for module: 'aic94xx'
+==> WARNING: Possibly missing firmware for module: 'qla2xxx'
+  -> Running build hook: [sd-encrypt]
+==> WARNING: Possibly missing firmware for module: 'qat_6xxx'
+  -> Running build hook: [lvm2]
+  -> Running build hook: [filesystems]
+  -> Running build hook: [fsck]
+==> Generating module dependencies
+==> Creating zstd-compressed initcpio image: '/boot/initramfs-linux.img'
+  -> Early uncompressed CPIO image generation successful
+==> Initcpio image generation successful
+Slot B is ready. Reboot and select it; the default remains unchanged.
+[chris@arch-xfce ~]$
+```
+
+Package versions, download sizes, and warnings will vary. This run had no
+available package upgrades: it validates cloning, the update command,
+initramfs regeneration, and boot publication, but not an actual package version
+change. The broad initramfs deliberately omits `autodetect`, so warnings for
+firmware used by hardware absent from the VM can occur. Check whether the target
+laptop needs any of the warned-about drivers before deployment.
+
+After rebooting and selecting the newly prepared Slot B:
+
+```text
+[chris@arch-xfce ~]$ findmnt /
+TARGET SOURCE                      FSTYPE OPTIONS
+/      /dev/mapper/archxfce-root_b ext4   rw,relatime
+[chris@arch-xfce ~]$ findmnt /home
+TARGET SOURCE                    FSTYPE OPTIONS
+/home  /dev/mapper/archxfce-home ext4   rw,relatime
+[chris@arch-xfce ~]$ systemctl --failed
+  UNIT LOAD ACTIVE SUB
+DESCRIPTION
+
+0 loaded units listed.
+[chris@arch-xfce ~]$ ls -l
+total 4
+drwxr-xr-x 2 chris chris 4096 Nov  8 10:46 Desktop
+-rw-r--r-- 1 chris chris    0 Nov  8 11:05 test
+[chris@arch-xfce ~]$
+```
+
+This confirms the prepared Slot B boots, shared home retains the test file, and
+no system services have failed. The XFCE desktop also works as expected,
+including `Ctrl+Alt+T` opening a terminal. Network and audio tests remain pending.
+
 ## Moving to a laptop
 
 The image uses UUIDs for filesystems, and both Intel/AMD microcode plus
