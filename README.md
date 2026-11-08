@@ -131,6 +131,42 @@ lsblk -f
 systemctl --failed
 ```
 
+Example output from a Slot A installation (UUIDs are identifiers, not secrets,
+and will differ on each fresh installation; available space and usage also vary).
+The `/efi` options below are truncated as displayed in the captured terminal:
+
+```text
+[chris@arch-xfce ~]$ findmnt /
+TARGET SOURCE                      FSTYPE OPTIONS
+/      /dev/mapper/archxfce-root_a ext4   rw,relatime
+[chris@arch-xfce ~]$ findmnt /home
+TARGET SOURCE                    FSTYPE OPTIONS
+/home  /dev/mapper/archxfce-home ext4   rw,relatime
+[chris@arch-xfce ~]$ findmnt /efi
+TARGET SOURCE FSTYPE OPTIONS
+/efi   /dev/vda1
+              vfat   rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=as
+[chris@arch-xfce ~]$ lsblk -f
+NAME FSTYPE FSVER LABEL       UUID                                   FSAVAIL FSUSE% MOUNTPOINTS
+sr0
+vda
+|-vda1
+|    vfat   FAT32 EFI         17D3-F1B5                                 1.8G     8% /efi
+`-vda2
+  |  crypto 2                 6491d1f3-b35e-438d-b140-867ecf43916c
+  `-archxfce_crypt
+    |  LVM2_m LVM2              2OivcA-NgoV-sK81-ApMy-DaOe-wieo-27c5el
+    |-archxfce-root_a
+    |  ext4   1.0   Slot_A      975780fd-f790-4dee-9080-5593fdabeeec     26.6G    10% /
+    |-archxfce-root_b
+    |  ext4   1.0   Slot_B      9869ccf9-f8b6-4a58-9599-d4cbc6b069c2
+    `-archxfce-home
+       ext4   1.0   Shared_Home ac863df8-a0e8-4cd1-99a1-a38678bbc9a9     57.6G     0% /home
+[chris@arch-xfce ~]$
+```
+
+Tree characters are rendered in ASCII above for readability in plain-text tools.
+
 Boot **both** menu entries. Roots should switch between `root_a` and `root_b`;
 home should stay on the same LV. Confirm desktop, network, audio, sudo, and a
 file in home persist across the switch.
