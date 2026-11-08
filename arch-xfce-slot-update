@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() { echo "Error: $*" >&2; exit 1; }
+[[ ${EUID} -eq 0 ]] || die "Run with sudo"
+for command in blkid readlink findmnt mount mountpoint umount rsync arch-chroot \
+  flock mktemp install awk sync; do
+  command -v "${command}" >/dev/null || die "Required command not found: ${command}"
+done
+[[ -f /etc/arch-xfce.conf ]] || die "Missing /etc/arch-xfce.conf"
+source /etc/arch-xfce.conf
+[[ "${VG_NAME:-}" =~ ^[a-zA-Z][a-zA-Z0-9_]*$ ]] || die "Invalid configured VG_NAME"
+[[ "${CRYPT_UUID:-}" =~ ^[0-9a-fA-F-]+$ ]] || die "Invalid configured CRYPT_UUID"
+exec 9>/run/arch-xfce-slot-update.lock
+flock -n 9 || die "Another slot update is running"
+findmnt -rnM /efi >/dev/null || die "/efi must be mounted"
+[[ "$(findmnt -nro FSTYPE -M /efi)" == vfat ]] || die "/efi is not a FAT EFI filesystem"
+ACTIVE="$(readlink -f "$(findmnt -nro SOURCE /)")"
+case "${ACTIVE}" in
+  "$(readlink -f "/dev/${VG_NAME}/root_a")") CURRENT=a; OTHER=b ;;
+  "$(readlink -f "/dev/${VG_NAME}/root_b")") CURRENT=b; OTHER=a ;;
+  *) die "Root is not one of the configured A/B volumes" ;;
+esac
+MODE=update
+case "${1:-}" in
+  --publish-current|--clone-only)
+    MODE="${1#--}"
+    shift
+    [[ $# -eq 0 ]] || die "This mode takes no additional arguments"
+    ;;
+  "") ;;
+  *) die "Usage: $0 [--publish-current|--clone-only]" ;;
+esac
+
+publish() {
+  local root="$1" slot="$2" assets entry old
+  [[ -s "${root}/boot/vmlinuz-linux" && -s "${root}/boot/initramfs-linux.img" ]] ||
+    die "Kernel or initramfs missing; boot entry will not be published"
+  mkdir -p /efi/arch-xfce /efi/loader/entries
+  assets="$(mktemp -d "/efi/arch-xfce/${slot}-XXXXXX")"
+  install -m644 "${root}/boot/vmlinuz-linux" "${assets}/vmlinuz-linux"
+  install -m644 "${root}/boot/initramfs-linux.img" "${assets}/initramfs-linux.img"
+  entry="$(mktemp "/efi/loader/entries/.arch-xfce-${slot}-XXXXXX")"
+  cat > "${entry}" <<EOF
+title Arch Linux XFCE (Slot ${slot^^})
+linux /arch-xfce/${assets##*/}/vmlinuz-linux
+initrd /arch-xfce/${assets##*/}/initramfs-linux.img
+options rd.luks.name=${CRYPT_UUID}=archxfce_crypt root=/dev/${VG_NAME}/root_${slot} rw
+EOF
+  sync
+  mv -f "${entry}" "/efi/loader/entries/arch-xfce-${slot}.conf"
+  sync
+  for old in /efi/arch-xfce/"${slot}"-*; do
+    [[ -d "${old}" && "${old}" != "${assets}" ]] || continue
+    [[ "${old##*/}" =~ ^[ab]-[a-zA-Z0-9]{6}$ ]] || continue
+    rm -f "${old}/vmlinuz-linux" "${old}/initramfs-linux.img"
+    rmdir "${old}"
+  done
+}
+
+if [[ "${MODE}" == publish-current ]]; then
+  publish "" "${CURRENT}"
+  exit 0
+fi
+INACTIVE="$(readlink -f "/dev/${VG_NAME}/root_${OTHER}")"
+[[ -b "${INACTIVE}" && "${INACTIVE}" != "${ACTIVE}" ]] || die "Inactive root not available"
+if findmnt -rnS "${INACTIVE}" >/dev/null; then die "Inactive root is mounted"; fi
+if [[ -e /var/lib/pacman/db.lck ]]; then die "An active-slot package operation is running"; fi
+SLOT_MOUNT="$(mktemp -d /mnt/arch-xfce-slot.XXXXXX)"
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if mountpoint -q "${SLOT_MOUNT}"; then
+    if ! umount -R "${SLOT_MOUNT}"; then
+      echo "Error: unable to unmount ${SLOT_MOUNT}; inspect manually." >&2
+      status=1
+    fi
+  fi
+  if ! rmdir "${SLOT_MOUNT}"; then
+    echo "Error: unable to remove temporary mount directory ${SLOT_MOUNT}." >&2
+    status=1
+  fi
+  exit "${status}"
+}
+trap cleanup EXIT
+mount "${INACTIVE}" "${SLOT_MOUNT}"
+# Hide the entry before modifying its root; failure must not advertise a bootable slot.
+rm -f "/efi/loader/entries/arch-xfce-${OTHER}.conf"
+sync
+echo "Cloning slot ${CURRENT^^} to ${OTHER^^}; shared /home is not copied."
+rsync -aHAXx --delete --numeric-ids \
+  --exclude=/efi/*** --exclude=/home/*** --exclude=/mnt/*** \
+  --exclude=/dev/*** --exclude=/proc/*** --exclude=/sys/*** --exclude=/run/*** \
+  / "${SLOT_MOUNT}/"
+mkdir -p "${SLOT_MOUNT}"/{efi,home,mnt,dev,proc,sys,run}
+INACTIVE_UUID="$(blkid -s UUID -o value "${INACTIVE}")"
+[[ -n "${INACTIVE_UUID}" ]] || die "Inactive filesystem UUID not found"
+awk -v uuid="${INACTIVE_UUID}" '$2 == "/" {$1="UUID=" uuid} {print}' \
+  "${SLOT_MOUNT}/etc/fstab" > "${SLOT_MOUNT}/etc/fstab.new"
+mv "${SLOT_MOUNT}/etc/fstab.new" "${SLOT_MOUNT}/etc/fstab"
+if [[ "${MODE}" == update ]]; then
+  echo "Updating inactive slot ${OTHER^^}."
+  # /efi and /home intentionally stay unmounted in the chroot.
+  arch-chroot "${SLOT_MOUNT}" pacman -Syu
+  arch-chroot "${SLOT_MOUNT}" mkinitcpio -P
+fi
+publish "${SLOT_MOUNT}" "${OTHER}"
+echo "Slot ${OTHER^^} is ready. Reboot and select it; the default remains unchanged."
