@@ -177,6 +177,55 @@ Boot **both** menu entries. Roots should switch between `root_a` and `root_b`;
 home should stay on the same LV. Confirm desktop, network, audio, sudo, and a
 file in home persist across the switch.
 
+### Slot B and shared-home verification
+
+Expected example session after rebooting into Slot B. Both slots use the same
+home and EFI filesystems, and `systemctl --failed` should list no failed units.
+The `/efi` options are truncated as displayed in the captured terminal:
+
+```text
+[chris@arch-xfce ~]$ findmnt /
+TARGET SOURCE                      FSTYPE OPTIONS
+/      /dev/mapper/archxfce-root_b ext4   rw,relatime
+[chris@arch-xfce ~]$ findmnt /home
+TARGET SOURCE                    FSTYPE OPTIONS
+/home  /dev/mapper/archxfce-home ext4   rw,relatime
+[chris@arch-xfce ~]$ findmnt /efi
+TARGET SOURCE FSTYPE OPTIONS
+/efi   /dev/vda1
+              vfat   rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=as
+[chris@arch-xfce ~]$ systemctl --failed
+  UNIT LOAD ACTIVE SUB
+DESCRIPTION
+
+0 loaded units listed.
+[chris@arch-xfce ~]$ ls ~/
+Desktop
+[chris@arch-xfce ~]$ touch ~/test
+[chris@arch-xfce ~]$ ls ~/
+Desktop  test
+[chris@arch-xfce ~]$
+```
+
+After rebooting back into Slot A, the root changes but the file created in
+Slot B remains in shared home. Directory contents and timestamps will vary:
+
+```text
+[chris@arch-xfce ~]$ findmnt /
+TARGET SOURCE                      FSTYPE OPTIONS
+/      /dev/mapper/archxfce-root_a ext4   rw,relatime
+[chris@arch-xfce ~]$ ls -l ~/
+total 4
+drwxr-xr-x 2 chris chris 4096 Nov  8 10:46 Desktop
+-rw-r--r-- 1 chris chris    0 Nov  8 11:05 test
+[chris@arch-xfce ~]$
+```
+
+This verifies that both root slots boot and user files persist across slot
+switches. It does not yet verify an inactive-slot package upgrade.
+
+### Updating the inactive slot
+
 ```bash
 sudo arch-xfce-slot-update
 ```
