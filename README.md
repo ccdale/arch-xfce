@@ -4,6 +4,12 @@ VM-first Arch Linux XFCE laptop build, adapted from
 [druidhtpc](https://github.com/ccdale/druidhtpc).
 The host builder boots an Arch ISO; installation is interactive inside the guest.
 
+## Initial XFCE desktop
+
+The default XFCE home screen after first login: ripe and ready for customisation.
+
+![Initial default XFCE desktop, ready for customisation](docs/images/xfce-initial-desktop.png)
+
 ## Layout and security
 
 Default disk: 128 GiB, GPT/UEFI only.
