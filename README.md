@@ -116,7 +116,7 @@ virsh --connect qemu:///session domblklist arch-xfce
 # Replace sda with the CD-ROM target shown above:
 virsh --connect qemu:///session change-media arch-xfce sda --eject --config
 virsh --connect qemu:///session start arch-xfce
-virt-viewer --connect qemu:///session arch-xfce
+virt-viewer --connect qemu:///session arch-xfce --attach
 ```
 
 ## Verify and update A/B slots
