@@ -324,9 +324,26 @@ drwxr-xr-x 2 chris chris 4096 Nov  8 10:46 Desktop
 
 This confirms the prepared Slot B boots, shared home retains the test file, and
 no system services have failed. The XFCE desktop also works as expected,
-including `Ctrl+Alt+T` opening a terminal. Network and audio tests remain pending.
+including `Ctrl+Alt+T` opening a terminal.
+
+### Network and audio verification
+
+Firefox successfully loaded and played the YouTube
+[Stereo Test - Left/Right Audio Test for Headphones/Speakers](https://www.youtube.com/watch?v=YwNs1Z0qRY0).
+The screenshot records the browser test, and audible stereo playback was
+confirmed during testing. Networking and audio playback are therefore verified
+in the VM; the screenshot alone cannot demonstrate audible output.
+
+![Firefox playing the YouTube stereo audio test in the XFCE VM](docs/images/xfce-network-audio-test.png)
+
+This validates the VM's internet connection and guest-to-host audio playback.
+Laptop Wi-Fi, speakers, headphones, and microphone still require hardware-specific
+testing after deployment.
 
 ## Moving to a laptop
+
+See [Framework Laptop 13 Pro hardware notes](docs/framework.md) for the target
+Intel Core Ultra Series 3 system, included support packages, and hardware tests.
 
 The image uses UUIDs for filesystems, and both Intel/AMD microcode plus
 non-autodetected initramfs drivers for portability. The fallback UEFI loader

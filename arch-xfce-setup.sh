@@ -112,7 +112,8 @@ fi
 pacstrap -K /mnt base linux linux-firmware intel-ucode amd-ucode \
   lvm2 cryptsetup arch-install-scripts sudo rsync vim git networkmanager \
   xorg-server xfce4 xfce4-goodies lightdm lightdm-gtk-greeter \
-  mesa firefox pipewire pipewire-alsa pipewire-pulse wireplumber \
+  mesa intel-media-driver firefox sof-firmware \
+  pipewire pipewire-alsa pipewire-pulse wireplumber fwupd \
   bluez bluez-utils cups avahi nss-mdns \
   qemu-guest-agent spice-vdagent
 cleanup_cache

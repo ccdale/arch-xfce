@@ -83,7 +83,7 @@ class WorkflowTests(unittest.TestCase):
         for name in (
             "virsh", "virt-install", "virt-viewer", "qemu-img",
             "findmnt", "mount", "mountpoint", "umount", "blkid",
-            "rsync", "arch-chroot",
+            "rsync", "arch-chroot", "sync",
         ):
             (self.bin / name).symlink_to(mock)
         self.env = {
@@ -347,6 +347,14 @@ genfstab() {
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(any("-t virtiofs" in line for line in log))
         self.assertTrue(log[0].startswith("mount --bind"))
+
+    def test_installer_includes_framework_support_packages(self):
+        result, log = self.run_installer_cache()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        packages = next(line.split() for line in log if line.startswith("pacstrap "))
+        for package in ("sof-firmware", "fwupd", "intel-media-driver",
+                        "linux-firmware", "intel-ucode", "mesa"):
+            self.assertIn(package, packages)
 
     def test_installer_failure_unmounts_cache_without_fstab(self):
         result, log = self.run_installer_cache(pacstrap_status=42)
