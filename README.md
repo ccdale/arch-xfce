@@ -38,8 +38,27 @@ sudo pacman -S --needed libvirt qemu-desktop edk2-ovmf virtiofsd virt-install vi
 
 Ensure `qemu:///session` is working and obtain a current, verified Arch x86_64 ISO.
 The default ISO path is `$HOME/Downloads/archlinux-x86_64.iso`.
-The share gives the guest write access to this project's ignored `work/` only,
-not the source directory.
+The work share gives the guest write access to this project's ignored `work/`,
+not the source directory. A second writable virtiofs share exposes the pacman
+cache, defaulting to `../druidhtpc/work/pacman-cache` relative to this project
+(here `/home/chris/src/druidhtpc/work/pacman-cache`).
+Override `PACMAN_CACHE_DIR` to use a different persistent host directory:
+
+```bash
+PACMAN_CACHE_DIR="$HOME/.cache/arch-pacman" ./build-arch-xfce.sh
+```
+
+The builder creates the cache directory if necessary and never erases it during
+VM rebuilds. Once `/work` is mounted, the installer automatically mounts the
+`pacman-cache` share at `/pacman-cache` and bind-mounts it into the target cache
+before `pacstrap`. Matching package versions are reused; missing/newer versions
+still download. The bind mount is removed before fstab generation and initial
+slot cloning, so no host-cache dependency is installed on the laptop.
+Missing or invalid VM cache shares cause an explicit error, not a local-cache
+fallback. Without a mounted `/work` (bare-metal installation), the installer
+explicitly uses a target-local cache.
+This shares installation downloads only; normal installed-system slot updates
+continue to use their local cache. Avoid concurrent cache cleanup while building.
 
 ```bash
 ./build-arch-xfce.sh

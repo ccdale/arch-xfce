@@ -10,6 +10,7 @@ VCPUS="${VCPUS:-2}"
 DISK_GB="${DISK_GB:-128}"
 URI="qemu:///session"
 WORK="${SCRIPT_DIR}/work"
+PACMAN_CACHE_DIR="${PACMAN_CACHE_DIR:-${SCRIPT_DIR}/../druidhtpc/work/pacman-cache}"
 
 die() { echo "Error: $*" >&2; exit 1; }
 [[ $# -eq 0 || ( $# -eq 1 && $1 == --recreate ) ]] ||
@@ -23,6 +24,10 @@ for command in virsh virt-install virt-viewer qemu-img install; do
   command -v "${command}" >/dev/null || die "Missing host command: ${command}"
 done
 [[ -r "${ARCH_ISO}" ]] || die "Arch ISO not readable: ${ARCH_ISO}"
+mkdir -p "${PACMAN_CACHE_DIR}"
+PACMAN_CACHE_DIR="$(cd "${PACMAN_CACHE_DIR}" && pwd -P)"
+[[ -r "${PACMAN_CACHE_DIR}" && -w "${PACMAN_CACHE_DIR}" && -x "${PACMAN_CACHE_DIR}" ]] ||
+  die "Pacman cache must be readable and writable: ${PACMAN_CACHE_DIR}"
 DISK="${DISK_DIR}/${VM_NAME}.qcow2"
 DOMAINS="$(virsh --connect "${URI}" list --all --name)"
 EXISTS=false
@@ -62,6 +67,7 @@ virt-install \
   --disk "path=${DISK},format=qcow2,bus=virtio,cache=none,boot.order=2" \
   --disk "path=${ARCH_ISO},device=cdrom,bus=sata,boot.order=1" \
   --filesystem "source=${WORK},target=work,driver.type=virtiofs" \
+  --filesystem "source=${PACMAN_CACHE_DIR},target=pacman-cache,driver.type=virtiofs" \
   "${NETWORK[@]}" --graphics spice,listen=127.0.0.1 \
   --video virtio --channel spicevmc --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
   --noautoconsole

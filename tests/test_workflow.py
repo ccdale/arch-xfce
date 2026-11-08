@@ -96,6 +96,7 @@ class WorkflowTests(unittest.TestCase):
             "DISK_GB": "128",
             "RAM_MB": "4096",
             "VCPUS": "2",
+            "PACMAN_CACHE_DIR": str(self.root / "shared-pacman-cache"),
         }
         (self.root / "arch.iso").touch()
         for name in ("etc", "boot", "efi/loader/entries", "mnt", "run",
@@ -155,6 +156,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(any("bus=virtio" in arg for arg in invocation))
         self.assertTrue(any("driver.type=virtiofs" in arg for arg in invocation))
         self.assertEqual(invocation.count("--disk"), 2)  # OS disk and ISO only
+        self.assertIn(
+            f"source={self.root}/shared-pacman-cache,target=pacman-cache,driver.type=virtiofs",
+            invocation,
+        )
+        self.assertEqual(invocation.count("--filesystem"), 2)
         self.assertTrue((self.host / "work/arch-xfce/arch-xfce-setup.sh").exists())
 
     def test_host_existing_disk_requires_confirmation(self):
@@ -174,6 +180,18 @@ class WorkflowTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(any("undefine" in row for row in self.commands()))
+
+    def test_rebuild_preserves_shared_cache(self):
+        cache = Path(self.env["PACMAN_CACHE_DIR"])
+        cache.mkdir()
+        package = cache / "cached-package.pkg.tar.zst"
+        package.write_text("cached package")
+        self.env["EXISTING_VM"] = "arch-xfce"
+        result = self.run_script(
+            self.host / "build-arch-xfce.sh", "--recreate", input="arch-xfce\n"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(package.read_text(), "cached package")
 
     def test_host_libvirt_failure_does_not_create_disk(self):
         self.env["VIRSH_FAIL"] = "1"
@@ -274,6 +292,84 @@ class WorkflowTests(unittest.TestCase):
                 text=True, capture_output=True, check=True,
             )
             self.assertEqual(result.stdout, expected)
+
+    def run_installer_cache(self, *, work=True, mounted=False, fstype="virtiofs",
+                            pacstrap_status=0, mount_status=0):
+        source = (PROJECT / "arch-xfce-setup.sh").read_text()
+        section = source.split("CACHE_BOUND=false\n", 1)[1].split(
+            'CRYPT_UUID="$(blkid', 1
+        )[0]
+        section = "CACHE_BOUND=false\n" + section
+        section = section.replace("/mnt", str(self.root / "target"))
+        (self.root / "target/etc").mkdir(parents=True)
+        wrapper = r'''
+set -euo pipefail
+die() { echo "Error: $*" >&2; exit 1; }
+mountpoint() {
+  if [[ "${@: -1}" == /work ]]; then [[ "$HAS_WORK" == yes ]];
+  else [[ "$HAS_CACHE" == yes ]]; fi
+}
+findmnt() { echo "$CACHE_FSTYPE"; }
+mkdir() { :; }
+mount() { echo "mount $*" >> "$TEST_ROOT/cache-log"; return "$MOUNT_STATUS"; }
+umount() { echo "umount $*" >> "$TEST_ROOT/cache-log"; }
+pacstrap() { echo "pacstrap $*" >> "$TEST_ROOT/cache-log"; return "$PACSTRAP_STATUS"; }
+genfstab() {
+  echo "genfstab $*" >> "$TEST_ROOT/cache-log"
+  echo "UUID=root / ext4 defaults 0 1"
+}
+'''
+        script = self.root / "installer-cache"
+        script.write_text(wrapper + section)
+        self.env.update(
+            HAS_WORK="yes" if work else "no",
+            HAS_CACHE="yes" if mounted else "no",
+            CACHE_FSTYPE=fstype,
+            PACSTRAP_STATUS=str(pacstrap_status),
+            MOUNT_STATUS=str(mount_status),
+        )
+        result = self.run_script(script)
+        log = self.root / "cache-log"
+        return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_installer_cache_unmounted_before_fstab(self):
+        result, log = self.run_installer_cache()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(log[0].startswith("mount -t virtiofs pacman-cache"))
+        self.assertTrue(log[1].startswith("mount --bind /pacman-cache"))
+        self.assertTrue(log[2].startswith("pacstrap -K"))
+        self.assertTrue(log[3].startswith("umount "))
+        self.assertTrue(log[4].startswith("genfstab -U"))
+        self.assertNotIn("pacman", (self.root / "target/etc/fstab").read_text())
+
+    def test_installer_reuses_already_mounted_cache(self):
+        result, log = self.run_installer_cache(mounted=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(any("-t virtiofs" in line for line in log))
+        self.assertTrue(log[0].startswith("mount --bind"))
+
+    def test_installer_failure_unmounts_cache_without_fstab(self):
+        result, log = self.run_installer_cache(pacstrap_status=42)
+        self.assertEqual(result.returncode, 42, result.stderr)
+        self.assertTrue(log[-1].startswith("umount "))
+        self.assertFalse(any(line.startswith("genfstab") for line in log))
+
+    def test_installer_missing_share_does_not_fallback(self):
+        result, log = self.run_installer_cache(mount_status=32)
+        self.assertEqual(result.returncode, 32, result.stderr)
+        self.assertFalse(any(line.startswith("pacstrap") for line in log))
+
+    def test_installer_invalid_cache_filesystem_is_refused(self):
+        result, log = self.run_installer_cache(mounted=True, fstype="ext4")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("host virtiofs cache share", result.stderr)
+        self.assertFalse(any(line.startswith("pacstrap") for line in log))
+
+    def test_bare_metal_install_keeps_local_cache(self):
+        result, log = self.run_installer_cache(work=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("target-local pacman cache", result.stdout)
+        self.assertFalse(any(line.startswith(("mount ", "umount ")) for line in log))
 
 
 if __name__ == "__main__":

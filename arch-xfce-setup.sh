@@ -30,7 +30,7 @@ grep -Fq "${LOCALE} UTF-8" /etc/locale.gen || die "Locale not available"
 [[ -x "${SCRIPT_DIR}/arch-xfce-slot-update" ]] || die "Slot updater missing or not executable"
 for command in cryptsetup sfdisk partprobe udevadm pvcreate vgcreate lvcreate \
   vgs blockdev loadkeys timedatectl mkfs.fat mkfs.ext4 pacstrap genfstab \
-  arch-chroot rsync lsblk findmnt mount blkid install; do
+  arch-chroot rsync lsblk findmnt mount mountpoint umount blkid install; do
   command -v "${command}" >/dev/null || die "Missing live ISO command: ${command}"
 done
 [[ -b "${TARGET_DISK}" ]] || die "Not a block device: ${TARGET_DISK}"
@@ -88,12 +88,36 @@ mkdir -p /mnt/efi /mnt/home
 mount "${ESP}" /mnt/efi
 mount "${HOME_LV}" /mnt/home
 
+CACHE_BOUND=false
+cleanup_cache() {
+  if "${CACHE_BOUND}"; then
+    umount /mnt/var/cache/pacman/pkg
+  fi
+}
+trap cleanup_cache EXIT
+if mountpoint -q /work; then
+  mkdir -p /pacman-cache /mnt/var/cache/pacman/pkg
+  if ! mountpoint -q /pacman-cache; then
+    mount -t virtiofs pacman-cache /pacman-cache
+  fi
+  [[ "$(findmnt -nro FSTYPE -M /pacman-cache)" == virtiofs ]] ||
+    die "/pacman-cache must be the host virtiofs cache share"
+  mount --bind /pacman-cache /mnt/var/cache/pacman/pkg
+  CACHE_BOUND=true
+  echo "Using shared host pacman cache at /pacman-cache"
+else
+  echo "/work is not mounted; using target-local pacman cache (bare-metal install)"
+fi
+
 pacstrap -K /mnt base linux linux-firmware intel-ucode amd-ucode \
   lvm2 cryptsetup arch-install-scripts sudo rsync vim git networkmanager \
   xorg-server xfce4 xfce4-goodies lightdm lightdm-gtk-greeter \
   mesa firefox pipewire pipewire-alsa pipewire-pulse wireplumber \
   bluez bluez-utils cups avahi nss-mdns \
   qemu-guest-agent spice-vdagent
+cleanup_cache
+CACHE_BOUND=false
+trap - EXIT
 genfstab -U /mnt > /mnt/etc/fstab
 CRYPT_UUID="$(blkid -s UUID -o value "${CRYPT_PART}")"
 cat > /mnt/etc/arch-xfce.conf <<EOF
